@@ -1,0 +1,680 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USERS & AUTHENTICATION
+// ============================================
+
+model User {
+  id                    String          @id @default(cuid())
+  email                 String          @unique
+  password              String
+  firstName             String?
+  lastName              String?
+  phone                 String?
+  avatar                String?
+  role                  Role            @default(BUYER)
+  twoFactorEnabled      Boolean         @default(false)
+  twoFactorSecret       String?
+  lastLogin             DateTime?
+  isActive              Boolean         @default(true)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  buyer                 Buyer?
+  developer             Developer?
+  contractor            Contractor?
+  contractorEmployee    ContractorEmployee?
+  finishingManager      FinishingManager?
+  clientService         ClientService?
+  warrantyDepartment    WarrantyDepartment?
+  admin                 Admin?
+  
+  sentMessages          ChatMessage[]
+  notifications         Notification[]
+  auditLogs             AuditLog[]
+
+  @@index([email])
+  @@index([role])
+}
+
+enum Role {
+  BUYER
+  DEVELOPER
+  CONTRACTOR
+  FINISHING_MANAGER
+  CLIENT_SERVICE
+  WARRANTY_DEPARTMENT
+  ADMIN
+}
+
+// ============================================
+// APARTMENTS & BUYERS
+// ============================================
+
+model Apartment {
+  id                    String          @id @default(cuid())
+  address               String
+  addressLine1          String
+  addressLine2          String?
+  city                  String
+  zipCode               String?
+  squareMeters          Float
+  rooms                 Int?
+  floor                 Int?
+  building              String?
+  section               String?
+  purchaseDate          DateTime
+  contractNumber        String          @unique
+  contractStatus        ContractStatus  @default(ACTIVE)
+  finishingType         FinishingType?
+  developerId           String
+  buyerId               String?
+  
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  developer             Developer       @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  buyer                 Buyer?          @relation(fields: [buyerId], references: [id], onDelete: SetNull)
+  
+  defects               Defect[]
+  inspections           InspectionSchedule[]
+  paymentSchedules      PaymentSchedule[]
+  finishing             FinishingProject?
+  photos                ApartmentPhoto[]
+  documents             ApartmentDocument[]
+
+  @@index([developerId])
+  @@index([buyerId])
+  @@index([contractNumber])
+  @@index([city])
+}
+
+enum ContractStatus {
+  ACTIVE
+  COMPLETED
+  TERMINATED
+}
+
+enum FinishingType {
+  GRAPHITE
+  GREYSTONE
+  BEIGESTONE
+  SAND
+  TERRA
+  NONE
+}
+
+model Buyer {
+  id                    String          @id @default(cuid())
+  userId                String          @unique
+  contractNumber        String          @unique
+  purchaseDate          DateTime
+  paymentSchedule       String?
+  totalPaymentAmount    Float?
+  
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  user                  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apartments            Apartment[]
+  payments              Payment[]
+  inspections           InspectionSchedule[]
+  chats                 Chat[]
+
+  @@index([userId])
+  @@index([contractNumber])
+}
+
+// ============================================
+// DEVELOPER / CONTRACTOR / EMPLOYEES
+// ============================================
+
+model Developer {
+  id                    String          @id @default(cuid())
+  userId                String          @unique
+  companyName           String
+  registrationNumber    String?
+  taxId                 String?
+  
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  user                  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apartments            Apartment[]
+  contractors           ContractorAssignment[]
+  chats                 Chat[]
+
+  @@index([userId])
+}
+
+model Contractor {
+  id                    String          @id @default(cuid())
+  userId                String          @unique
+  companyName           String
+  registrationNumber    String?
+  taxId                 String?
+  rating                Float           @default(0)
+  totalDefectsAssigned  Int             @default(0)
+  totalDefectsCompleted Int             @default(0)
+  
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  user                  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employees             ContractorEmployee[]
+  assignments           ContractorAssignment[]
+  defects               Defect[]
+  chats                 Chat[]
+
+  @@index([userId])
+}
+
+model ContractorEmployee {
+  id                    String          @id @default(cuid())
+  userId                String          @unique
+  contractorId          String
+  position              ContractorPosition
+  
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  user                  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contractor            Contractor      @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([contractorId])
+}
+
+enum ContractorPosition {
+  DIRECTOR
+  PROJECT_MANAGER
+  SITE_MANAGER
+  FOREMAN
+  ENGINEER
+}
+
+// ============================================
+// FINISHING & MANAGEMENT
+// ============================================
+
+model FinishingManager {
+  id                    String          @id @default(cuid())
+  userId                String          @unique
+  
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  user                  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  finishingProjects     FinishingProject[]
+}
+
+model FinishingProject {
+  id                    String          @id @default(cuid())
+  apartmentId           String          @unique
+  managerId             String
+  status                FinishingStatus @default(AWAITING_TRANSFER)
+  transferDate          DateTime?
+  expectedCompletionDate DateTime?
+  actualCompletionDate  DateTime?
+  
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  apartment             Apartment       @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
+  manager               FinishingManager @relation(fields: [managerId], references: [id])
+  defects               Defect[]
+  inspections           InspectionSchedule[]
+
+  @@index([apartmentId])
+  @@index([managerId])
+}
+
+enum FinishingStatus {
+  AWAITING_TRANSFER
+  IN_PROGRESS
+  WORK_COMPLETED
+  AWAITING_INSPECTION
+  INSPECTION_COMPLETED
+  ACCEPTED_WITH_DEFECTS
+  DEFECT_CORRECTION
+  REPEAT_INSPECTION
+  ACCEPTED_WITHOUT_DEFECTS
+  OVERDUE
+}
+
+// ============================================
+// SUPPORT & WARRANTY
+// ============================================
+
+model ClientService {
+  id                    String          @id @default(cuid())
+  userId                String          @unique
+  
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  user                  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model WarrantyDepartment {
+  id                    String          @id @default(cuid())
+  userId                String          @unique
+  
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  user                  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Admin {
+  id                    String          @id @default(cuid())
+  userId                String          @unique
+  permissions           String[]
+  
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  user                  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// DEFECTS / ISSUES
+// ============================================
+
+model Defect {
+  id                    String          @id @default(cuid())
+  apartmentId           String
+  finishingProjectId    String?
+  description           String
+  defectType            DefectType
+  severity              Severity        @default(MEDIUM)
+  status                DefectStatus    @default(NEW)
+  contractorId          String?
+  createdById           String
+  createdAt             DateTime        @default(now())
+  dueDate               DateTime
+  completedAt           DateTime?
+  rejectionReason       String?
+  rejectionCount        Int             @default(0)
+  
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  apartment             Apartment       @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
+  finishingProject      FinishingProject? @relation(fields: [finishingProjectId], references: [id], onDelete: SetNull)
+  contractor            Contractor?     @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+  
+  photos                DefectPhoto[]
+  comments              DefectComment[]
+  history               DefectHistory[]
+
+  @@index([apartmentId])
+  @@index([contractorId])
+  @@index([status])
+  @@index([dueDate])
+}
+
+enum DefectType {
+  PLUMBING
+  ELECTRICAL
+  FINISHING
+  DOORS_WINDOWS
+  FLOORING
+  WALLS
+  CEILING
+  KITCHEN
+  BATHROOM
+  OTHER
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum DefectStatus {
+  NEW
+  IN_PROGRESS
+  UNDER_REVIEW
+  COMPLETED_AWAITING_CONFIRMATION
+  CLOSED
+  REJECTED
+  WAITING_DEVELOPER_DECISION
+}
+
+model DefectPhoto {
+  id                    String          @id @default(cuid())
+  defectId              String
+  photoUrl              String
+  description           String?
+  uploadedAt            DateTime        @default(now())
+
+  // Relations
+  defect                Defect          @relation(fields: [defectId], references: [id], onDelete: Cascade)
+
+  @@index([defectId])
+}
+
+model DefectComment {
+  id                    String          @id @default(cuid())
+  defectId              String
+  userId                String
+  content               String
+  createdAt             DateTime        @default(now())
+
+  // Relations
+  defect                Defect          @relation(fields: [defectId], references: [id], onDelete: Cascade)
+
+  @@index([defectId])
+}
+
+model DefectHistory {
+  id                    String          @id @default(cuid())
+  defectId              String
+  previousStatus        DefectStatus?
+  newStatus             DefectStatus
+  userId                String
+  reason                String?
+  createdAt             DateTime        @default(now())
+
+  // Relations
+  defect                Defect          @relation(fields: [defectId], references: [id], onDelete: Cascade)
+
+  @@index([defectId])
+}
+
+// ============================================
+// INSPECTIONS & SCHEDULING
+// ============================================
+
+model InspectionSchedule {
+  id                    String          @id @default(cuid())
+  apartmentId           String
+  buyerId               String
+  finishingProjectId    String?
+  scheduledDate         DateTime
+  status                InspectionStatus @default(NOT_PLANNED)
+  notes                 String?
+  inspectorComments     String?
+  
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  apartment             Apartment       @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
+  buyer                 Buyer           @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  finishingProject      FinishingProject? @relation(fields: [finishingProjectId], references: [id], onDelete: SetNull)
+
+  @@index([apartmentId])
+  @@index([buyerId])
+  @@index([scheduledDate])
+}
+
+enum InspectionStatus {
+  NOT_PLANNED
+  AWAITING_CONFIRMATION
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+model ApartmentPhoto {
+  id                    String          @id @default(cuid())
+  apartmentId           String
+  photoUrl              String
+  description           String?
+  month                 Int?
+  year                  Int?
+  uploadedAt            DateTime        @default(now())
+
+  // Relations
+  apartment             Apartment       @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
+
+  @@index([apartmentId])
+}
+
+// ============================================
+// PAYMENTS
+// ============================================
+
+model PaymentSchedule {
+  id                    String          @id @default(cuid())
+  apartmentId           String
+  amount                Float
+  dueDate               DateTime
+  status                PaymentStatus   @default(PENDING)
+  
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  apartment             Apartment       @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
+  payments              Payment[]
+
+  @@index([apartmentId])
+  @@index([dueDate])
+}
+
+model Payment {
+  id                    String          @id @default(cuid())
+  buyerId               String
+  scheduleId            String
+  amount                Float
+  status                PaymentStatus   @default(PENDING)
+  stripePaymentIntentId String?
+  paidAt                DateTime?
+  
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  buyer                 Buyer           @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  schedule              PaymentSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@index([buyerId])
+  @@index([scheduleId])
+  @@index([status])
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+// ============================================
+// COMMUNICATIONS
+// ============================================
+
+model Chat {
+  id                    String          @id @default(cuid())
+  chatType              ChatType
+  developerId           String?
+  buyerId               String?
+  contractorId          String?
+  finishingManagerId    String?
+  
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  developer             Developer?      @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  buyer                 Buyer?          @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  contractor            Contractor?     @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+  
+  messages              ChatMessage[]
+
+  @@index([developerId])
+  @@index([buyerId])
+  @@index([contractorId])
+}
+
+enum ChatType {
+  BUYER_SUPPORT
+  BUYER_DEVELOPER
+  BUYER_WARRANTY
+  BUYER_FINISHING
+  DEVELOPER_CONTRACTOR
+}
+
+model ChatMessage {
+  id                    String          @id @default(cuid())
+  chatId                String
+  senderId              String
+  content               String
+  attachmentUrl         String?
+  isRead                Boolean         @default(false)
+  readAt                DateTime?
+  
+  createdAt             DateTime        @default(now())
+
+  // Relations
+  chat                  Chat            @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender                User            @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([chatId])
+  @@index([senderId])
+}
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+model Notification {
+  id                    String          @id @default(cuid())
+  userId                String
+  type                  NotificationType
+  title                 String
+  message               String
+  relatedEntityType     String?
+  relatedEntityId       String?
+  isRead                Boolean         @default(false)
+  readAt                DateTime?
+  
+  createdAt             DateTime        @default(now())
+
+  // Relations
+  user                  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+enum NotificationType {
+  BOOKING_CONFIRMED
+  BOOKING_CANCELLED
+  NEW_DEFECT
+  DEFECT_STATUS_CHANGED
+  PAYMENT_REMINDER
+  PAYMENT_COMPLETED
+  CONSTRUCTION_UPDATE
+  FINISHING_STARTED
+  FINISHING_COMPLETED
+  DEFECT_REJECTED
+  MESSAGE_RECEIVED
+  SYSTEM_ALERT
+}
+
+// ============================================
+// DOCUMENTS
+// ============================================
+
+model ApartmentDocument {
+  id                    String          @id @default(cuid())
+  apartmentId           String
+  documentType          DocumentType
+  documentUrl           String
+  fileName              String
+  isSigned              Boolean         @default(false)
+  signedAt              DateTime?
+  
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  apartment             Apartment       @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
+
+  @@index([apartmentId])
+  @@index([documentType])
+}
+
+enum DocumentType {
+  INSPECTION_REPORT
+  FINISHING_ACT
+  PROPERTY_REGISTRATION
+  CONTRACT
+  OTHER
+}
+
+// ============================================
+// CONTRACTOR ASSIGNMENTS
+// ============================================
+
+model ContractorAssignment {
+  id                    String          @id @default(cuid())
+  developerId           String
+  contractorId          String
+  defectType            DefectType
+  building              String?
+  section               String?
+  priority              Int             @default(0)
+  
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  developer             Developer       @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  contractor            Contractor      @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+
+  @@index([developerId])
+  @@index([contractorId])
+}
+
+// ============================================
+// AUDIT & LOGGING
+// ============================================
+
+model AuditLog {
+  id                    String          @id @default(cuid())
+  userId                String
+  action                String
+  entityType            String
+  entityId              String
+  changes               Json?
+  ipAddress             String?
+  userAgent             String?
+  
+  createdAt             DateTime        @default(now())
+
+  // Relations
+  user                  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([entityType])
+  @@index([createdAt])
+}
